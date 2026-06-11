@@ -15,7 +15,6 @@ except ImportError:
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from round_app_icon import (  # noqa: E402
     APPSTORE_PNG,
-    DESKTOP_CASSETTE_PNG,
     compose_macos_icon,
     from_appstore_master,
     load_source,
@@ -27,7 +26,7 @@ SIZES = (16, 32, 128, 256, 512)
 
 
 def build_master(source: Path) -> Image.Image:
-    if source.resolve() == APPSTORE_PNG.resolve():
+    if source.resolve() == APPSTORE_PNG.resolve() and APPSTORE_PNG.exists():
         return from_appstore_master(source)
 
     if source.suffix.lower() in {".jpg", ".jpeg"}:
@@ -35,15 +34,6 @@ def build_master(source: Path) -> Image.Image:
 
     src = Image.open(source).convert("RGBA")
     return compose_macos_icon(src)
-
-
-def resolve_source() -> Path:
-    if DESKTOP_CASSETTE_PNG.exists():
-        return DESKTOP_CASSETTE_PNG
-    assets_png = Path(__file__).resolve().parents[1] / "Assets" / "AppIcon.png"
-    if assets_png.exists():
-        return assets_png
-    return pick_source()
 
 
 def write_iconset(master: Image.Image, iconset_dir: Path) -> None:
@@ -63,7 +53,7 @@ def main() -> None:
         print(f"Usage: {Path(__file__).name} <out.icns>", file=sys.stderr)
         sys.exit(2)
 
-    source = resolve_source()
+    source = pick_source()
     if not source.exists():
         print(f"Source not found: {source}", file=sys.stderr)
         sys.exit(1)

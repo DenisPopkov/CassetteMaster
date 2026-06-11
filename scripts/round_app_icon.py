@@ -15,23 +15,19 @@ ROOT = Path(__file__).resolve().parents[1]
 ASSETS = ROOT / "Assets"
 SRC = ASSETS / "AppIcon.png"
 SOURCE_MASTER = ASSETS / "IconSource.png"
+CASSETTE_PNG = ASSETS / "IconSource.png"
 OUT = ASSETS / "AppIcon.png"
-ICON_JPEG = Path.home() / "Downloads" / "f9161d43778860fee7db0696ea31365f.jpg"
-APPSTORE_PNG = Path.home() / "Desktop" / "appstore.png"
-DESKTOP_CASSETTE_PNG = Path.home() / "Desktop" / "cassette.png"
-# Cassette artwork fill inside the tile (before whole-tile Dock scaling).
+ICON_JPEG = ASSETS / "AppIconSource.jpg"
+APPSTORE_PNG = ASSETS / "AppStoreSource.png"
 MACOS_SAFE_FILL = 0.84
 SQUARE_MASTER_FILL = 0.8925
-# Shrink the entire squircle tile — matches Audacity / system Dock size.
 DOCK_TILE_SCALE = 0.84
-# Legacy alias used by make_icns import
 MACOS_ARTWORK_SCALE = MACOS_SAFE_FILL
 APPSTORE_ARTWORK_FILL = 0.84
 ICON_BACKGROUND = (0, 0, 0)
 
 
 def squircle_alpha(size: int) -> Image.Image:
-    """Rounded rect mask (~22.3% radius) — transparent corners like system icons."""
     mask = Image.new("L", (size, size), 0)
     radius = max(1, int(size * 0.223))
     ImageDraw.Draw(mask).rounded_rectangle(
@@ -50,7 +46,6 @@ def load_source(path: Path, size: int = 1024) -> Image.Image:
 
 
 def apply_squircle(img: Image.Image) -> Image.Image:
-    """Clip to macOS squircle; transparent outside, premultiplied RGB."""
     size = img.size[0]
     mask = squircle_alpha(size)
     r, g, b, a = img.convert("RGBA").split()
@@ -69,7 +64,6 @@ def apply_squircle(img: Image.Image) -> Image.Image:
 
 
 def scale_dock_tile(icon: Image.Image, tile_scale: float = DOCK_TILE_SCALE) -> Image.Image:
-    """Shrink the whole icon (background + artwork), not just inner art."""
     size = icon.size[0]
     inner = max(1, int(size * tile_scale))
     scaled = icon.resize((inner, inner), Image.Resampling.LANCZOS)
@@ -79,27 +73,14 @@ def scale_dock_tile(icon: Image.Image, tile_scale: float = DOCK_TILE_SCALE) -> I
     return canvas
 
 
-def detect_background_rgb(src: Image.Image) -> tuple[int, int, int]:
-    """Sample corners — cassette icon uses near-black matte."""
-    img = src.convert("RGBA")
-    w, h = img.size
-    samples = [img.getpixel((0, 0)), img.getpixel((w - 1, 0)), img.getpixel((0, h - 1)), img.getpixel((w - 1, h - 1))]
-    rs = [c[0] for c in samples]
-    gs = [c[1] for c in samples]
-    bs = [c[2] for c in samples]
-    return (sum(rs) // len(rs), sum(gs) // len(gs), sum(bs) // len(bs))
-
-
 def compose_macos_icon(
     src: Image.Image,
     size: int = 1024,
     artwork_scale: float = MACOS_SAFE_FILL,
 ) -> Image.Image:
-    """Square icon clipped to macOS squircle (RGBA, transparent outside like system apps)."""
     bg = ICON_BACKGROUND
     src_rgba = src.convert("RGBA")
 
-    # Square masters (cassette.png): keep full frame — no matte stripping.
     if abs(src_rgba.width - src_rgba.height) <= max(src_rgba.width, src_rgba.height) * 0.05:
         inner = int(size * SQUARE_MASTER_FILL)
         fitted = src_rgba.resize((inner, inner), Image.Resampling.LANCZOS)
@@ -138,23 +119,16 @@ def _has_visible_pixels(path: Path) -> bool:
 
 
 def pick_source() -> Path:
-    if DESKTOP_CASSETTE_PNG.exists():
-        return DESKTOP_CASSETTE_PNG
-    if SOURCE_MASTER.exists():
-        return SOURCE_MASTER
-    if SRC.exists() and _has_visible_pixels(SRC):
-        return SRC
-    if APPSTORE_PNG.exists():
-        return APPSTORE_PNG
-    if ICON_JPEG.exists():
-        return ICON_JPEG
-    if SRC.exists():
-        return SRC
-    return ICON_JPEG
+    for path in (CASSETTE_PNG, APPSTORE_PNG, ICON_JPEG, SRC):
+        if not path.exists():
+            continue
+        if path == SRC and not _has_visible_pixels(path):
+            continue
+        return path
+    return CASSETTE_PNG
 
 
 def crop_to_artwork(src: Image.Image, threshold: int = 28) -> Image.Image:
-    """Trim near-black margins so the cassette can be scaled larger."""
     img = src.convert("RGBA")
     px = img.load()
     w, h = img.size
@@ -179,22 +153,7 @@ def crop_to_artwork(src: Image.Image, threshold: int = 28) -> Image.Image:
     return img.crop((min_x, min_y, max_x + 1, max_y + 1))
 
 
-def fill_canvas(src: Image.Image, size: int = 1024, fill: float = 1.0) -> Image.Image:
-    """Scale artwork to fill the squircle (crop trims black margins first)."""
-    cropped = crop_to_artwork(src)
-    cw, ch = cropped.size
-    inner = int(size * fill)
-    scale = inner / max(cw, ch)
-    nw = max(1, int(cw * scale))
-    nh = max(1, int(ch * scale))
-    scaled = cropped.resize((nw, nh), Image.Resampling.LANCZOS)
-    canvas = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    canvas.paste(scaled, ((size - nw) // 2, (size - nh) // 2), scaled)
-    return canvas
-
-
 def from_appstore_master(path: Path, size: int = 1024) -> Image.Image:
-    """Large cassette fill for Dock/Launchpad."""
     src = Image.open(path).convert("RGBA")
     if src.size != (size, size):
         src = src.resize((size, size), Image.Resampling.LANCZOS)
@@ -208,11 +167,9 @@ def main() -> None:
         sys.exit(1)
 
     icon = compose_macos_icon(Image.open(source).convert("RGBA"))
-    label = "macOS AppIcon (squircle RGBA)"
-
     ASSETS.mkdir(parents=True, exist_ok=True)
     icon.save(OUT, "PNG")
-    print(f"Wrote {label}: {OUT}")
+    print(f"Wrote macOS AppIcon (squircle RGBA): {OUT}")
 
 
 if __name__ == "__main__":
